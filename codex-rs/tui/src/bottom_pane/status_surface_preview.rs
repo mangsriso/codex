@@ -15,12 +15,14 @@ pub(crate) enum StatusSurfacePreviewItem {
     Status,
     ThreadTitle,
     GitBranch,
+    GitWorkingTree,
     PullRequestNumber,
     BranchChanges,
     Permissions,
     ApprovalMode,
     ContextRemaining,
     ContextUsed,
+    ContextMeter,
     FiveHourLimit,
     WeeklyLimit,
     CodexVersion,
@@ -31,6 +33,7 @@ pub(crate) enum StatusSurfacePreviewItem {
     ThreadCredits,
     EstimatedThreadCost,
     SessionId,
+    SessionElapsed,
     FastMode,
     RawOutput,
     WorkspaceHeadline,
@@ -38,6 +41,7 @@ pub(crate) enum StatusSurfacePreviewItem {
     ModelWithReasoning,
     Reasoning,
     TaskProgress,
+    FocusTask,
 }
 
 impl StatusSurfacePreviewItem {
@@ -51,12 +55,14 @@ impl StatusSurfacePreviewItem {
             StatusSurfacePreviewItem::Status => "Working",
             StatusSurfacePreviewItem::ThreadTitle => "thread title",
             StatusSurfacePreviewItem::GitBranch => "feat/awesome-feature",
+            StatusSurfacePreviewItem::GitWorkingTree => "feat/awesome-feature ✓",
             StatusSurfacePreviewItem::PullRequestNumber => "PR #123",
             StatusSurfacePreviewItem::BranchChanges => "+12 -3",
             StatusSurfacePreviewItem::Permissions => "Workspace",
             StatusSurfacePreviewItem::ApprovalMode => "on-request",
             StatusSurfacePreviewItem::ContextRemaining => "Context 0% left",
             StatusSurfacePreviewItem::ContextUsed => "Context 0% used",
+            StatusSurfacePreviewItem::ContextMeter => "[███░░░░░░░░░] 25% ~96K left",
             StatusSurfacePreviewItem::FiveHourLimit => "primary 0%",
             StatusSurfacePreviewItem::WeeklyLimit => "secondary 0%",
             StatusSurfacePreviewItem::CodexVersion => "0.0.0",
@@ -67,6 +73,7 @@ impl StatusSurfacePreviewItem {
             StatusSurfacePreviewItem::ThreadCredits => "5.2 credits",
             StatusSurfacePreviewItem::EstimatedThreadCost => "~$1.82",
             StatusSurfacePreviewItem::SessionId => "550e8400-e29b-41d4",
+            StatusSurfacePreviewItem::SessionElapsed => "⏱ 12m34s",
             StatusSurfacePreviewItem::FastMode => "Fast on",
             StatusSurfacePreviewItem::RawOutput => "raw output",
             StatusSurfacePreviewItem::WorkspaceHeadline => "Workspace headline",
@@ -74,6 +81,7 @@ impl StatusSurfacePreviewItem {
             StatusSurfacePreviewItem::ModelWithReasoning => "gpt-5.2-codex medium",
             StatusSurfacePreviewItem::Reasoning => "medium",
             StatusSurfacePreviewItem::TaskProgress => "Tasks 0/0",
+            StatusSurfacePreviewItem::FocusTask => "🎯migration wave…",
         }
     }
 
@@ -87,12 +95,14 @@ impl StatusSurfacePreviewItem {
             Self::Status,
             Self::ThreadTitle,
             Self::GitBranch,
+            Self::GitWorkingTree,
             Self::PullRequestNumber,
             Self::BranchChanges,
             Self::Permissions,
             Self::ApprovalMode,
             Self::ContextRemaining,
             Self::ContextUsed,
+            Self::ContextMeter,
             Self::FiveHourLimit,
             Self::WeeklyLimit,
             Self::CodexVersion,
@@ -103,6 +113,7 @@ impl StatusSurfacePreviewItem {
             Self::ThreadCredits,
             Self::EstimatedThreadCost,
             Self::SessionId,
+            Self::SessionElapsed,
             Self::FastMode,
             Self::RawOutput,
             Self::WorkspaceHeadline,
@@ -110,6 +121,7 @@ impl StatusSurfacePreviewItem {
             Self::ModelWithReasoning,
             Self::Reasoning,
             Self::TaskProgress,
+            Self::FocusTask,
         ]
         .into_iter()
     }

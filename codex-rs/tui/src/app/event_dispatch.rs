@@ -2801,6 +2801,18 @@ impl App {
                 self.chat_widget.set_status_line_git_summary(cwd, summary);
                 self.refresh_status_line();
             }
+            AppEvent::WednesdayStatusUpdated {
+                request_id,
+                cwd,
+                snapshot,
+            } => {
+                if self
+                    .chat_widget
+                    .apply_wednesday_status(request_id, cwd, snapshot)
+                {
+                    self.refresh_status_line();
+                }
+            }
             AppEvent::StatusLineWorkspaceHeadlineUpdated { request_id, result } => {
                 if self
                     .chat_widget

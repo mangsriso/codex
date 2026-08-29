@@ -80,6 +80,12 @@ impl WorkspaceCommand {
         self
     }
 
+    /// Sets the maximum bytes captured independently from stdout and stderr.
+    pub(crate) fn output_bytes_cap(mut self, output_bytes_cap: usize) -> Self {
+        self.output_bytes_cap = output_bytes_cap;
+        self
+    }
+
     /// Requests uncapped stdout/stderr capture from app-server.
     pub(crate) fn disable_output_cap(mut self) -> Self {
         self.disable_output_cap = true;
@@ -115,7 +121,7 @@ pub(crate) struct WorkspaceCommandError {
 }
 
 impl WorkspaceCommandError {
-    fn new(message: impl Into<String>) -> Self {
+    pub(crate) fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
         }

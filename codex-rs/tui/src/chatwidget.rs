@@ -428,6 +428,9 @@ mod status_controls;
 mod status_surfaces;
 mod streaming;
 use self::status_surfaces::CachedProjectRootName;
+mod wednesday_status;
+pub(crate) use self::wednesday_status::WednesdayStatusSnapshot;
+use self::wednesday_status::WednesdayStatusState;
 mod thread_usage;
 pub(crate) use self::thread_usage::ThreadUsageOutcome;
 mod tokens;
@@ -748,6 +751,8 @@ pub(crate) struct ChatWidget {
     pub(crate) terminal_title_next_refresh: Option<Instant>,
     // Cached project-root display name keyed by cwd for status/title rendering.
     status_line_project_root_name_cache: Option<CachedProjectRootName>,
+    // Monotonic session timer and cached Oracle focus/Git working-tree probes.
+    wednesday_status: WednesdayStatusState,
     // Cached git branch name for the status line (None if unknown).
     status_line_branch: Option<String>,
     // CWD used to resolve the cached branch; change resets branch state.
@@ -1217,6 +1222,7 @@ impl ChatWidget {
             self.refresh_terminal_title();
         }
         self.refresh_status_line_if_workspace_headline_due();
+        self.refresh_wednesday_status_if_due();
         self.refresh_thread_usage_if_settlement_due();
     }
 
