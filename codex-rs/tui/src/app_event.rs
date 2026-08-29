@@ -1271,6 +1271,12 @@ pub(crate) enum AppEvent {
         cwd: PathBuf,
         summary: crate::chatwidget::StatusLineGitSummary,
     },
+    /// Async update of the native Wednesday workspace status providers.
+    WednesdayStatusUpdated {
+        request_id: u64,
+        cwd: PathBuf,
+        snapshot: crate::chatwidget::WednesdayStatusSnapshot,
+    },
     /// Async update of the workspace notification headline for status line rendering.
     StatusLineWorkspaceHeadlineUpdated {
         request_id: u64,

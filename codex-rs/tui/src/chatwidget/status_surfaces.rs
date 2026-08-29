@@ -70,6 +70,24 @@ impl StatusSurfaceSelections {
                 .contains(&StatusLineItem::BranchChanges)
     }
 
+    fn uses_focus_task(&self) -> bool {
+        self.status_line_items.contains(&StatusLineItem::FocusTask)
+    }
+
+    fn uses_git_working_tree(&self) -> bool {
+        self.status_line_items
+            .contains(&StatusLineItem::GitWorkingTree)
+    }
+
+    fn uses_wednesday_workspace_status(&self) -> bool {
+        self.uses_focus_task() || self.uses_git_working_tree()
+    }
+
+    fn uses_session_elapsed(&self) -> bool {
+        self.status_line_items
+            .contains(&StatusLineItem::SessionElapsed)
+    }
+
     fn uses_workspace_headline(&self) -> bool {
         self.status_line_items
             .contains(&StatusLineItem::WorkspaceHeadline)
@@ -157,6 +175,7 @@ impl ChatWidget {
     }
 
     fn sync_status_surface_shared_state(&mut self, selections: &StatusSurfaceSelections) {
+        let now = Instant::now();
         if !selections.uses_git_branch() {
             self.status_line_branch = None;
             self.status_line_branch_pending = false;
@@ -187,7 +206,28 @@ impl ChatWidget {
             self.status_line_workspace_headline_last_requested_at = None;
             self.status_line_workspace_messages_disabled = false;
         } else {
-            self.request_status_line_workspace_headline_if_due(Instant::now());
+            self.request_status_line_workspace_headline_if_due(now);
+        }
+
+        self.wednesday_status
+            .set_elapsed_enabled(selections.uses_session_elapsed(), now);
+        if selections.uses_wednesday_workspace_status() {
+            let cwd = self.status_line_cwd().to_path_buf();
+            self.wednesday_status.sync_cwd(&cwd);
+            self.request_wednesday_status(
+                cwd,
+                selections.uses_focus_task(),
+                selections.uses_git_working_tree(),
+                now,
+            );
+        } else {
+            self.wednesday_status.clear_workspace();
+        }
+        if let Some(delay) = self
+            .wednesday_status
+            .next_refresh_delay(now, selections.uses_wednesday_workspace_status())
+        {
+            self.frame_requester.schedule_frame_in(delay);
         }
 
         if selections.uses_thread_usage() {
@@ -582,6 +622,60 @@ impl ChatWidget {
         });
     }
 
+    fn request_wednesday_status(
+        &mut self,
+        cwd: PathBuf,
+        include_focus: bool,
+        include_git: bool,
+        now: Instant,
+    ) {
+        let providers =
+            super::wednesday_status::WorkspaceProviders::new(include_focus, include_git);
+        let Some(request_id) = self.wednesday_status.begin_request(now, providers) else {
+            return;
+        };
+        let runner = self.workspace_command_runner.clone();
+        let tx = self.app_event_tx.clone();
+        tokio::spawn(async move {
+            let snapshot = super::wednesday_status::resolve_workspace_status(
+                cwd.clone(),
+                runner,
+                include_focus,
+                include_git,
+            )
+            .await;
+            tx.send(AppEvent::WednesdayStatusUpdated {
+                request_id,
+                cwd,
+                snapshot,
+            });
+        });
+    }
+
+    pub(super) fn refresh_wednesday_status_if_due(&mut self) {
+        let now = Instant::now();
+        let selections = self.status_surface_selections();
+        if self
+            .wednesday_status
+            .refresh_due(now, selections.uses_wednesday_workspace_status())
+        {
+            self.refresh_status_surfaces();
+        }
+    }
+
+    pub(crate) fn apply_wednesday_status(
+        &mut self,
+        request_id: u64,
+        cwd: PathBuf,
+        snapshot: WednesdayStatusSnapshot,
+    ) -> bool {
+        if self.status_line_cwd() != cwd {
+            return false;
+        }
+        self.wednesday_status
+            .apply(request_id, &cwd, snapshot, Instant::now())
+    }
+
     fn request_status_line_workspace_headline_if_due(&mut self, now: Instant) {
         if !self.status_line_workspace_headline_should_fetch(now) {
             return;
@@ -680,6 +774,7 @@ impl ChatWidget {
             StatusLineItem::ProjectRoot => self.status_line_project_root_name(),
             StatusLineItem::Hostname => os_host_name(),
             StatusLineItem::GitBranch => self.status_line_branch.clone(),
+            StatusLineItem::GitWorkingTree => self.wednesday_status.git_working_tree(),
             StatusLineItem::PullRequestNumber => self
                 .status_line_git_summary
                 .as_ref()
@@ -714,6 +809,17 @@ impl ChatWidget {
             StatusLineItem::ContextUsed => self
                 .status_line_context_used_percent()
                 .map(|used| format!("Context {used}% used")),
+            StatusLineItem::ContextMeter => {
+                let info = self.token_info.as_ref()?;
+                let context_window = self.status_line_context_window_size()?;
+                let used_percent = self.status_line_context_used_percent()?;
+                let used_tokens = info.last_token_usage.tokens_in_context_window().max(0);
+                let remaining_tokens = context_window.saturating_sub(used_tokens);
+                Some(super::wednesday_status::format_context_meter(
+                    used_percent,
+                    remaining_tokens,
+                ))
+            }
             StatusLineItem::FiveHourLimit => {
                 let (window, is_secondary) = self
                     .rate_limit_snapshots_by_limit_id
@@ -755,6 +861,9 @@ impl ChatWidget {
                 .and_then(|usage| usage.estimated_usage_usd_micros)
                 .and_then(format_estimated_usd_micros),
             StatusLineItem::SessionId => self.thread_id.map(|id| id.to_string()),
+            StatusLineItem::SessionElapsed => {
+                Some(self.wednesday_status.session_elapsed(Instant::now()))
+            }
             StatusLineItem::FastMode => self
                 .model_catalog
                 .try_list_models()
@@ -786,6 +895,7 @@ impl ChatWidget {
             ),
             StatusLineItem::WorkspaceHeadline => self.status_line_workspace_headline.clone(),
             StatusLineItem::TaskProgress => self.terminal_title_task_progress(),
+            StatusLineItem::FocusTask => self.wednesday_status.focus_task(),
         }
     }
 
@@ -810,12 +920,14 @@ impl ChatWidget {
             StatusSurfacePreviewItem::Hostname => StatusLineItem::Hostname,
             StatusSurfacePreviewItem::ThreadTitle => StatusLineItem::ThreadTitle,
             StatusSurfacePreviewItem::GitBranch => StatusLineItem::GitBranch,
+            StatusSurfacePreviewItem::GitWorkingTree => StatusLineItem::GitWorkingTree,
             StatusSurfacePreviewItem::PullRequestNumber => StatusLineItem::PullRequestNumber,
             StatusSurfacePreviewItem::BranchChanges => StatusLineItem::BranchChanges,
             StatusSurfacePreviewItem::Permissions => StatusLineItem::Permissions,
             StatusSurfacePreviewItem::ApprovalMode => StatusLineItem::ApprovalMode,
             StatusSurfacePreviewItem::ContextRemaining => StatusLineItem::ContextRemaining,
             StatusSurfacePreviewItem::ContextUsed => StatusLineItem::ContextUsed,
+            StatusSurfacePreviewItem::ContextMeter => StatusLineItem::ContextMeter,
             StatusSurfacePreviewItem::FiveHourLimit => StatusLineItem::FiveHourLimit,
             StatusSurfacePreviewItem::WeeklyLimit => StatusLineItem::WeeklyLimit,
             StatusSurfacePreviewItem::CodexVersion => StatusLineItem::CodexVersion,
@@ -826,12 +938,14 @@ impl ChatWidget {
             StatusSurfacePreviewItem::ThreadCredits => StatusLineItem::ThreadCredits,
             StatusSurfacePreviewItem::EstimatedThreadCost => StatusLineItem::EstimatedThreadCost,
             StatusSurfacePreviewItem::SessionId => StatusLineItem::SessionId,
+            StatusSurfacePreviewItem::SessionElapsed => StatusLineItem::SessionElapsed,
             StatusSurfacePreviewItem::FastMode => StatusLineItem::FastMode,
             StatusSurfacePreviewItem::RawOutput => StatusLineItem::RawOutput,
             StatusSurfacePreviewItem::WorkspaceHeadline => StatusLineItem::WorkspaceHeadline,
             StatusSurfacePreviewItem::Model => StatusLineItem::ModelName,
             StatusSurfacePreviewItem::ModelWithReasoning => StatusLineItem::ModelWithReasoning,
             StatusSurfacePreviewItem::Reasoning => StatusLineItem::Reasoning,
+            StatusSurfacePreviewItem::FocusTask => StatusLineItem::FocusTask,
         };
         self.status_line_value_for_item(status_line_item)
     }

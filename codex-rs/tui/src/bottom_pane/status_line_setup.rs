@@ -13,11 +13,13 @@
 //! - Directory paths (current dir, project root)
 //! - Machine hostname
 //! - Git information (branch name)
+//! - Wednesday workspace state (focus task and working tree)
 //! - Permissions profile
 //! - Approval mode
 //! - Context usage (remaining %, used %, window size)
 //! - Usage limits (primary, secondary)
 //! - Session info (thread title, thread ID, tokens used)
+//! - Session elapsed time and compact context usage
 //! - Application version
 
 use ratatui::buffer::Buffer;
@@ -81,6 +83,9 @@ pub(crate) enum StatusLineItem {
     /// Current git branch name (if in a repository).
     GitBranch,
 
+    /// Current Git branch plus clean, dirty, conflict, or operation state.
+    GitWorkingTree,
+
     /// Open pull request number for the current branch.
     PullRequestNumber,
 
@@ -106,6 +111,9 @@ pub(crate) enum StatusLineItem {
     /// Also accepts the legacy `context-usage` config value.
     #[strum(to_string = "context-used", serialize = "context-usage")]
     ContextUsed,
+
+    /// Compact graphical context usage meter and remaining token count.
+    ContextMeter,
 
     /// Remaining usage on the primary rate limit.
     FiveHourLimit,
@@ -138,6 +146,9 @@ pub(crate) enum StatusLineItem {
     #[strum(to_string = "thread-id", serialize = "session-id")]
     SessionId,
 
+    /// Elapsed wall-clock time for the live TUI session.
+    SessionElapsed,
+
     /// Whether Fast mode is currently active.
     FastMode,
 
@@ -152,6 +163,9 @@ pub(crate) enum StatusLineItem {
 
     /// Latest checklist task progress from `update_plan` (if available).
     TaskProgress,
+
+    /// Active Oracle focus task from the current workspace.
+    FocusTask,
 }
 
 impl StatusLineItem {
@@ -165,6 +179,9 @@ impl StatusLineItem {
             StatusLineItem::ProjectRoot => "Project name (omitted when unavailable)",
             StatusLineItem::Hostname => "Current machine hostname (omitted when unavailable)",
             StatusLineItem::GitBranch => "Current Git branch (omitted when unavailable)",
+            StatusLineItem::GitWorkingTree => {
+                "Git branch and working-tree state (omitted when unavailable)"
+            }
             StatusLineItem::PullRequestNumber => {
                 "Open pull request number for the current branch (omitted when unavailable)"
             }
@@ -179,6 +196,9 @@ impl StatusLineItem {
             }
             StatusLineItem::ContextUsed => {
                 "Percentage of context window used (omitted when unknown)"
+            }
+            StatusLineItem::ContextMeter => {
+                "Compact context meter and tokens remaining (omitted when unknown)"
             }
             StatusLineItem::FiveHourLimit => {
                 "Remaining usage on the primary usage limit (omitted when unavailable)"
@@ -200,6 +220,7 @@ impl StatusLineItem {
                 "Estimated current-thread cost in USD (Enterprise workspaces only; omitted when unavailable)"
             }
             StatusLineItem::SessionId => "Current thread identifier (omitted until thread starts)",
+            StatusLineItem::SessionElapsed => "Elapsed time for this live TUI session",
             StatusLineItem::FastMode => "Whether Fast mode is currently active",
             StatusLineItem::RawOutput => "Whether raw scrollback mode is active",
             StatusLineItem::ThreadTitle => {
@@ -210,6 +231,9 @@ impl StatusLineItem {
             }
             StatusLineItem::TaskProgress => {
                 "Latest task progress from update_plan (omitted until available)"
+            }
+            StatusLineItem::FocusTask => {
+                "Active Oracle focus task from ψ/inbox/focus.md (omitted when unavailable)"
             }
         }
     }
@@ -223,6 +247,7 @@ impl StatusLineItem {
             StatusLineItem::ProjectRoot => StatusSurfacePreviewItem::ProjectRoot,
             StatusLineItem::Hostname => StatusSurfacePreviewItem::Hostname,
             StatusLineItem::GitBranch => StatusSurfacePreviewItem::GitBranch,
+            StatusLineItem::GitWorkingTree => StatusSurfacePreviewItem::GitWorkingTree,
             StatusLineItem::PullRequestNumber => StatusSurfacePreviewItem::PullRequestNumber,
             StatusLineItem::BranchChanges => StatusSurfacePreviewItem::BranchChanges,
             StatusLineItem::Status => StatusSurfacePreviewItem::Status,
@@ -230,6 +255,7 @@ impl StatusLineItem {
             StatusLineItem::ApprovalMode => StatusSurfacePreviewItem::ApprovalMode,
             StatusLineItem::ContextRemaining => StatusSurfacePreviewItem::ContextRemaining,
             StatusLineItem::ContextUsed => StatusSurfacePreviewItem::ContextUsed,
+            StatusLineItem::ContextMeter => StatusSurfacePreviewItem::ContextMeter,
             StatusLineItem::FiveHourLimit => StatusSurfacePreviewItem::FiveHourLimit,
             StatusLineItem::WeeklyLimit => StatusSurfacePreviewItem::WeeklyLimit,
             StatusLineItem::CodexVersion => StatusSurfacePreviewItem::CodexVersion,
@@ -240,11 +266,13 @@ impl StatusLineItem {
             StatusLineItem::ThreadCredits => StatusSurfacePreviewItem::ThreadCredits,
             StatusLineItem::EstimatedThreadCost => StatusSurfacePreviewItem::EstimatedThreadCost,
             StatusLineItem::SessionId => StatusSurfacePreviewItem::SessionId,
+            StatusLineItem::SessionElapsed => StatusSurfacePreviewItem::SessionElapsed,
             StatusLineItem::FastMode => StatusSurfacePreviewItem::FastMode,
             StatusLineItem::RawOutput => StatusSurfacePreviewItem::RawOutput,
             StatusLineItem::ThreadTitle => StatusSurfacePreviewItem::ThreadTitle,
             StatusLineItem::WorkspaceHeadline => StatusSurfacePreviewItem::WorkspaceHeadline,
             StatusLineItem::TaskProgress => StatusSurfacePreviewItem::TaskProgress,
+            StatusLineItem::FocusTask => StatusSurfacePreviewItem::FocusTask,
         }
     }
 }
@@ -466,6 +494,27 @@ mod tests {
         assert_eq!(
             "estimated-thread-cost".parse::<StatusLineItem>(),
             Ok(StatusLineItem::EstimatedThreadCost)
+        );
+    }
+
+    #[test]
+    fn wednesday_items_are_independently_selectable() {
+        assert_eq!(
+            [
+                "context-meter",
+                "session-elapsed",
+                "focus-task",
+                "git-working-tree",
+            ]
+            .into_iter()
+            .map(str::parse::<StatusLineItem>)
+            .collect::<Result<Vec<_>, _>>(),
+            Ok(vec![
+                StatusLineItem::ContextMeter,
+                StatusLineItem::SessionElapsed,
+                StatusLineItem::FocusTask,
+                StatusLineItem::GitWorkingTree,
+            ])
         );
     }
 
@@ -730,6 +779,25 @@ mod tests {
         );
 
         assert_snapshot!(render_lines(&view, /*width*/ 100));
+    }
+
+    #[test]
+    fn setup_view_snapshot_includes_wednesday_items() {
+        let (tx_raw, _rx) = unbounded_channel::<AppEvent>();
+        let view = StatusLineSetupView::new(
+            Some(&[
+                StatusLineItem::ContextMeter.to_string(),
+                StatusLineItem::SessionElapsed.to_string(),
+                StatusLineItem::FocusTask.to_string(),
+                StatusLineItem::GitWorkingTree.to_string(),
+            ]),
+            /*use_theme_colors*/ true,
+            StatusSurfacePreviewData::default(),
+            AppEventSender::new(tx_raw),
+            crate::keymap::RuntimeKeymap::defaults().list,
+        );
+
+        assert_snapshot!(render_lines(&view, /*width*/ 72));
     }
 
     #[test]

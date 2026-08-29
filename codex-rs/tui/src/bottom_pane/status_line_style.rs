@@ -35,11 +35,13 @@ impl StatusLineAccent {
             | StatusLineItem::Reasoning => Self::Model,
             StatusLineItem::CurrentDir | StatusLineItem::ProjectRoot => Self::Path,
             StatusLineItem::GitBranch
+            | StatusLineItem::GitWorkingTree
             | StatusLineItem::PullRequestNumber
             | StatusLineItem::BranchChanges => Self::Branch,
             StatusLineItem::Status => Self::State,
             StatusLineItem::ContextRemaining
             | StatusLineItem::ContextUsed
+            | StatusLineItem::ContextMeter
             | StatusLineItem::ContextWindowSize
             | StatusLineItem::UsedTokens
             | StatusLineItem::TotalInputTokens
@@ -47,14 +49,15 @@ impl StatusLineAccent {
             | StatusLineItem::ThreadCredits
             | StatusLineItem::EstimatedThreadCost => Self::Usage,
             StatusLineItem::FiveHourLimit | StatusLineItem::WeeklyLimit => Self::Limit,
-            StatusLineItem::CodexVersion | StatusLineItem::Hostname | StatusLineItem::SessionId => {
-                Self::Metadata
-            }
+            StatusLineItem::CodexVersion
+            | StatusLineItem::Hostname
+            | StatusLineItem::SessionId
+            | StatusLineItem::SessionElapsed => Self::Metadata,
             StatusLineItem::FastMode | StatusLineItem::RawOutput => Self::Mode,
             StatusLineItem::Permissions => Self::Mode,
             StatusLineItem::ApprovalMode => Self::Mode,
             StatusLineItem::ThreadTitle | StatusLineItem::WorkspaceHeadline => Self::Thread,
-            StatusLineItem::TaskProgress => Self::Progress,
+            StatusLineItem::TaskProgress | StatusLineItem::FocusTask => Self::Progress,
         }
     }
 
@@ -252,6 +255,37 @@ mod tests {
         assert_eq!(line_text(&line), "5.2 credits · ~$0.21");
         assert_eq!(line.spans[0].style, line.spans[2].style);
         assert!(line.spans[1].style.add_modifier.contains(Modifier::DIM));
+    }
+
+    #[test]
+    fn wednesday_items_preserve_order_and_use_semantic_accents() {
+        let line = status_line_from_segments_with_resolver(
+            [
+                (StatusLineItem::ContextMeter, "[meter]".to_string()),
+                (StatusLineItem::SessionElapsed, "⏱ 1m02s".to_string()),
+                (StatusLineItem::FocusTask, "🎯focus".to_string()),
+                (StatusLineItem::GitWorkingTree, "main ✓".to_string()),
+            ],
+            /*use_theme_colors*/ true,
+            |_| None,
+        )
+        .expect("Wednesday status line");
+
+        assert_eq!(line_text(&line), "[meter] · ⏱ 1m02s · 🎯focus · main ✓");
+        assert_eq!(
+            [
+                line.spans[0].style.fg,
+                line.spans[2].style.fg,
+                line.spans[4].style.fg,
+                line.spans[6].style.fg,
+            ],
+            [
+                Some(Color::Green),
+                Some(Color::Cyan),
+                Some(Color::Green),
+                Some(Color::Magenta),
+            ]
+        );
     }
 
     #[test]
